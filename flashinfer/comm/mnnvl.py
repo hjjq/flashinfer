@@ -869,9 +869,6 @@ class McastDeviceMemory:
             mc_fabric_handle = None
 
         # Broadcast multicast handle
-        # mc_fabric_handle_data = comm.bcast(
-        #     mc_fabric_handle.data if mc_fabric_handle else None, root=0
-        # )
         mc_fabric_handle_list = [mc_fabric_handle.data] if mc_fabric_handle else [None]
         if self.group:
             dist.broadcast_object_list(

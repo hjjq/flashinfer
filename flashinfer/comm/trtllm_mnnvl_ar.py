@@ -173,7 +173,6 @@ def get_allreduce_mnnvl_workspace(
 
     # CPU barrier since we assume this should not be called in cuda graph
     torch.cuda.synchronize()
-    # mpi_barrier()
     dist.barrier()
 
     # This is a buffer to maintain the state of this allreduce Op

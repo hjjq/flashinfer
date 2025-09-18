@@ -603,7 +603,6 @@ class McastDeviceMemory:
         # Signal pad constants
         self.SIGNAL_PAD_ALIGNMENT = 16
         self.SIGNAL_PAD_SIZE = SIGNAL_PAD_SIZE
-        return
 
         # Check if device supports multicasting
         multicast_supported = checkCudaErrors(
@@ -627,6 +626,7 @@ class McastDeviceMemory:
             f"mnNvlink: {is_multi_node}, device_idx: {device_idx}, "
             f"Signal pad offset: {self.signal_pad_offset}"
         )
+        return
 
         if self.is_multi_node:
             # Check if fabric handle is supported

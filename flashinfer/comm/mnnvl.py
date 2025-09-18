@@ -564,7 +564,6 @@ class McastDeviceMemory:
         print(f"flashinfer.comm.mnnvl.McastDeviceMemory.__init__:  after checkCudaErrors(cuda.cuDevicePrimaryCtxRetain(cu_device))")
         checkCudaErrors(cuda.cuCtxSetCurrent(primary_ctx))
         print(f"flashinfer.comm.mnnvl.McastDeviceMemory.__init__:  after checkCudaErrors(cuda.cuCtxSetCurrent(primary_ctx))")
-        return
 
         # Set CUDA device
         # Check if cuda.cudart is available and import accordingly
@@ -578,6 +577,7 @@ class McastDeviceMemory:
             # cuda-python >= 13.0
             import cuda.bindings.runtime as cudart
         print(f"flashinfer.comm.mnnvl.McastDeviceMemory.__init__:  after import cuda.bindings.runtime as cudart")
+        return
 
         checkCudaErrors(cudart.cudaSetDevice(device_idx))
         print(f"flashinfer.comm.mnnvl.McastDeviceMemory.__init__:  after checkCudaErrors(cudart.cudaSetDevice(device_idx))")

@@ -845,11 +845,13 @@ class McastDeviceMemory:
             )
         )
         print(f"flashinfer.comm.mnnvl.McastDeviceMemory._alloc_mn_mcast_mem:  after checkCudaErrors(cuda.cuMemExportToShareableHandle(self.uc_handles[self.group_rank], cuda.CUmemAllocationHandleType.CU_MEM_HANDLE_TYPE_FABRIC, 0,))")
-        return
+        # this point didn't hang
 
         # All-gather fabric handles
         all_fabric_handles = comm.allgather(my_fabric_handle.data)
         cuda.cuCtxSynchronize()
+        print(f"flashinfer.comm.mnnvl.McastDeviceMemory._alloc_mn_mcast_mem:  after cuda.cuCtxSynchronize()")
+        return
 
         # Import remote handles
         for p in range(self.group_size):

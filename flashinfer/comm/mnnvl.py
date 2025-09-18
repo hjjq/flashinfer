@@ -556,14 +556,19 @@ class McastDeviceMemory:
         device_idx: int,
         is_multi_node: bool = True,
     ):
+        print(f"flashinfer.comm.mnnvl.McastDeviceMemory.__init__:  before checkCudaErrors(cuda.cuDeviceGet(device_idx))")
         cu_device = checkCudaErrors(cuda.cuDeviceGet(device_idx))
+        print(f"flashinfer.comm.mnnvl.McastDeviceMemory.__init__:  after checkCudaErrors(cuda.cuDeviceGet(device_idx))")
 
         primary_ctx = checkCudaErrors(cuda.cuDevicePrimaryCtxRetain(cu_device))
+        print(f"flashinfer.comm.mnnvl.McastDeviceMemory.__init__:  after checkCudaErrors(cuda.cuDevicePrimaryCtxRetain(cu_device))")
         checkCudaErrors(cuda.cuCtxSetCurrent(primary_ctx))
+        print(f"flashinfer.comm.mnnvl.McastDeviceMemory.__init__:  after checkCudaErrors(cuda.cuCtxSetCurrent(primary_ctx))")
 
         # Set CUDA device
         # Check if cuda.cudart is available and import accordingly
         from flashinfer.utils import has_cuda_cudart
+        print(f"flashinfer.comm.mnnvl.McastDeviceMemory.__init__:  after from flashinfer.utils import has_cuda_cudart")
 
         if has_cuda_cudart():
             # cuda-python <= 12.9
@@ -571,8 +576,10 @@ class McastDeviceMemory:
         else:
             # cuda-python >= 13.0
             import cuda.bindings.runtime as cudart
+        print(f"flashinfer.comm.mnnvl.McastDeviceMemory.__init__:  after import cuda.bindings.runtime as cudart")
 
         checkCudaErrors(cudart.cudaSetDevice(device_idx))
+        print(f"flashinfer.comm.mnnvl.McastDeviceMemory.__init__:  after checkCudaErrors(cudart.cudaSetDevice(device_idx))")
 
         self.is_multi_node = is_multi_node
         self.device_idx = device_idx
@@ -604,6 +611,7 @@ class McastDeviceMemory:
                 device_idx,
             )
         )
+        print(f"flashinfer.comm.mnnvl.McastDeviceMemory.__init__:  after checkCudaErrors(cuda.cuDeviceGetAttribute(cuda.CUdevice_attribute.CU_DEVICE_ATTRIBUTE_MULTICAST_SUPPORTED, device_idx,))")
         if multicast_supported == 0:
             raise RuntimeError(
                 "[McastDeviceMemory] Device does not support multicasting."
@@ -611,6 +619,7 @@ class McastDeviceMemory:
 
         # Calculate signal pad offset with alignment (matching C++ exactly)
         self.signal_pad_offset = round_up(buf_size, self.SIGNAL_PAD_ALIGNMENT)
+        print(f"flashinfer.comm.mnnvl.McastDeviceMemory.__init__:  after round_up(buf_size, self.SIGNAL_PAD_ALIGNMENT)")
 
         logging.info(
             f"[McastDeviceMemory] Rank: {group_rank}, Group size: {group_size}, "

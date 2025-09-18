@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from typing import Optional, Tuple
 
 import torch
+import torch.distributed as dist
 
 from flashinfer.comm.mapping import Mapping
 
@@ -122,7 +123,7 @@ def get_trtllm_mnnvl_comm_module():
 
 
 def get_allreduce_mnnvl_workspace(
-    mapping: Mapping, dtype: torch.dtype
+    mapping: Mapping, dtype: torch.dtype, group: Optional[dist.ProcessGroup] = None
 ) -> Tuple[McastGPUBuffer, torch.Tensor, int]:
     """Get workspace buffers needed for multi-node NVLink all-reduce operation.
 
@@ -164,6 +165,7 @@ def get_allreduce_mnnvl_workspace(
         mapping.tp_rank,
         torch.device("cuda", mapping.local_rank),
         mapping.is_multi_node() or force_mn,
+        group=group,
     )
 
     # Initialize the unicast buffer with -0.0
@@ -171,7 +173,8 @@ def get_allreduce_mnnvl_workspace(
 
     # CPU barrier since we assume this should not be called in cuda graph
     torch.cuda.synchronize()
-    mpi_barrier()
+    # mpi_barrier()
+    dist.barrier()
 
     # This is a buffer to maintain the state of this allreduce Op
     # [Buffer_ptr, Clear_ptr, Buffer_size, num_tokens_prev, atomic access counter]

@@ -24,6 +24,7 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 import pynvml
 
 import torch
+import torch.distributed as dist
 
 try:
     # cuda-python >= 12.9 (has cuda.bindings.driver)
@@ -555,6 +556,7 @@ class McastDeviceMemory:
         group_rank: int,
         device_idx: int,
         is_multi_node: bool = True,
+        group: dist.ProcessGroup = None,
     ):
         print(f"flashinfer.comm.mnnvl.McastDeviceMemory.__init__:  before checkCudaErrors(cuda.cuDeviceGet(device_idx))")
         cu_device = checkCudaErrors(cuda.cuDeviceGet(device_idx))
@@ -585,6 +587,7 @@ class McastDeviceMemory:
         self.device_idx = device_idx
         self.group_size = group_size
         self.group_rank = group_rank
+        self.group = group
         self.buf_size = buf_size
         self.signal_pad_offset = 0
         self.allocation_size = 0
@@ -780,13 +783,12 @@ class McastDeviceMemory:
             print(f"Error checking CUDA context: {e}")
 
         # Get MPI communicator
-        comm = MpiComm()
+        # comm = MpiComm()
         # bbbb = [1,2,3]
         # rrr = comm.Get_rank()
         # print(f"rrr: {rrr}")
 
         print(f"flashinfer.comm.mnnvl.McastDeviceMemory._alloc_mn_mcast_mem:  after MpiComm()")
-        return
 
         # Set up allocation properties
         handle_type = cuda.CUmemAllocationHandleType.CU_MEM_HANDLE_TYPE_FABRIC
@@ -853,7 +855,15 @@ class McastDeviceMemory:
         # this point didn't hang
 
         # All-gather fabric handles
-        all_fabric_handles = comm.allgather(my_fabric_handle.data)
+        if not dist.is_initialized():
+            raise RuntimeError("torch.distributed must be initialized before use.")
+
+        # Use all_gather_object to collect fabric handles from all ranks
+        all_fabric_handles = [None for _ in range(self.group_size)]
+        dist.all_gather_object(
+            all_fabric_handles, my_fabric_handle.data, group=self.group
+        )
+        # all_fabric_handles = comm.allgather(my_fabric_handle.data)
         print(f"flashinfer.comm.mnnvl.McastDeviceMemory._alloc_mn_mcast_mem:  after comm.allgather(my_fabric_handle.data)")
         cuda.cuCtxSynchronize()
         print(f"flashinfer.comm.mnnvl.McastDeviceMemory._alloc_mn_mcast_mem:  after cuda.cuCtxSynchronize()")
@@ -885,9 +895,17 @@ class McastDeviceMemory:
             mc_fabric_handle = None
 
         # Broadcast multicast handle
-        mc_fabric_handle_data = comm.bcast(
-            mc_fabric_handle.data if mc_fabric_handle else None, root=0
-        )
+        # mc_fabric_handle_data = comm.bcast(
+        #     mc_fabric_handle.data if mc_fabric_handle else None, root=0
+        # )
+        mc_fabric_handle_list = [mc_fabric_handle.data] if mc_fabric_handle else [None]
+        if self.group:
+            dist.broadcast_object_list(
+                mc_fabric_handle_list, group_src=0, group=self.group
+            )
+        else:
+            dist.broadcast_object_list(mc_fabric_handle_list, src=0)
+        mc_fabric_handle_data = mc_fabric_handle_list[0]
         # Sync device to ensure broadcast is complete
         cuda.cuCtxSynchronize()
         # Import multicast handle for non-root ranks
@@ -993,6 +1011,7 @@ class McastGPUBuffer:
         group_rank: int,
         device: torch.device,
         mn_nvlink: bool = True,
+        group: dist.ProcessGroup = None,
     ):
         """
         Constructor for McastGpuBuffer.
@@ -1005,7 +1024,7 @@ class McastGPUBuffer:
             mn_nvlink: Flag indicating if multi-node NVLink is used
         """
         self.mcast_device_memory = McastDeviceMemory(
-            buf_size, group_size, group_rank, device.index, mn_nvlink
+            buf_size, group_size, group_rank, device.index, mn_nvlink, group
         )
         self.buf_size = buf_size
         self.local_device = device

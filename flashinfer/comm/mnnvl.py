@@ -782,7 +782,9 @@ class McastDeviceMemory:
         # Get MPI communicator
         comm = MpiComm()
         bbbb = [1,2,3]
-        print(comm.allgather(bbbb))
+        rrr = comm.Get_rank()
+        print(f"rrr: {rrr}")
+
         print(f"flashinfer.comm.mnnvl.McastDeviceMemory._alloc_mn_mcast_mem:  after MpiComm()")
         return
 

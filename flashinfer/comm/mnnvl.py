@@ -849,9 +849,10 @@ class McastDeviceMemory:
 
         # All-gather fabric handles
         all_fabric_handles = comm.allgather(my_fabric_handle.data)
+        print(f"flashinfer.comm.mnnvl.McastDeviceMemory._alloc_mn_mcast_mem:  after comm.allgather(my_fabric_handle.data)")
+        return
         cuda.cuCtxSynchronize()
         print(f"flashinfer.comm.mnnvl.McastDeviceMemory._alloc_mn_mcast_mem:  after cuda.cuCtxSynchronize()")
-        return
 
         # Import remote handles
         for p in range(self.group_size):

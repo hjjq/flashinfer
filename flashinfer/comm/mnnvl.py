@@ -646,7 +646,6 @@ class McastDeviceMemory:
         else:
             # For single-node NVLS, would need to implement _alloc_nvls_mcast_mem
             raise NotImplementedError("Single-node NVLS allocation not implemented yet")
-        return
 
         # Initialize signal pads
         self.signal_pads = [0] * self.group_size
@@ -769,6 +768,7 @@ class McastDeviceMemory:
         """Allocate multi-node multicast memory using MNNVL"""
 
         # Verify CUDA context
+        print(f"flashinfer.comm.mnnvl.McastDeviceMemory._alloc_mn_mcast_mem:  before checkCudaErrors(cuda.cuCtxGetDevice())")
         try:
             current_device = checkCudaErrors(cuda.cuCtxGetDevice())
 
@@ -781,6 +781,7 @@ class McastDeviceMemory:
 
         # Get MPI communicator
         comm = MpiComm()
+        print(f"flashinfer.comm.mnnvl.McastDeviceMemory._alloc_mn_mcast_mem:  after MpiComm()")
 
         # Set up allocation properties
         handle_type = cuda.CUmemAllocationHandleType.CU_MEM_HANDLE_TYPE_FABRIC
@@ -803,6 +804,7 @@ class McastDeviceMemory:
                 cuda.CUmemAllocationGranularity_flags.CU_MEM_ALLOC_GRANULARITY_MINIMUM,
             )
         )
+        print(f"flashinfer.comm.mnnvl.McastDeviceMemory._alloc_mn_mcast_mem:  after checkCudaErrors(cuda.cuMemGetAllocationGranularity(allocation_prop, cuda.CUmemAllocationGranularity_flags.CU_MEM_ALLOC_GRANULARITY_MINIMUM,))")
 
         # mAllocationSize = roundUp(bufSize + kSIGNAL_PAD_SIZE, alloc_granularity);
         self.allocation_size = round_up(
@@ -822,6 +824,7 @@ class McastDeviceMemory:
                 cuda.CUmulticastGranularity_flags.CU_MULTICAST_GRANULARITY_RECOMMENDED,
             )
         )
+        print(f"flashinfer.comm.mnnvl.McastDeviceMemory._alloc_mn_mcast_mem:  after checkCudaErrors(cuda.cuMulticastGetGranularity(mc_prop, cuda.CUmulticastGranularity_flags.CU_MULTICAST_GRANULARITY_RECOMMENDED,))")
 
         self.allocation_size = round_up(self.allocation_size, mc_granularity)
 
@@ -841,6 +844,8 @@ class McastDeviceMemory:
                 0,
             )
         )
+        print(f"flashinfer.comm.mnnvl.McastDeviceMemory._alloc_mn_mcast_mem:  after checkCudaErrors(cuda.cuMemExportToShareableHandle(self.uc_handles[self.group_rank], cuda.CUmemAllocationHandleType.CU_MEM_HANDLE_TYPE_FABRIC, 0,))")
+        return
 
         # All-gather fabric handles
         all_fabric_handles = comm.allgather(my_fabric_handle.data)

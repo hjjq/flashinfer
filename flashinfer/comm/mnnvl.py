@@ -781,7 +781,10 @@ class McastDeviceMemory:
 
         # Get MPI communicator
         comm = MpiComm()
+        bbbb = [1,2,3]
+        print(comm.allgather(bbbb))
         print(f"flashinfer.comm.mnnvl.McastDeviceMemory._alloc_mn_mcast_mem:  after MpiComm()")
+        return
 
         # Set up allocation properties
         handle_type = cuda.CUmemAllocationHandleType.CU_MEM_HANDLE_TYPE_FABRIC
@@ -850,7 +853,6 @@ class McastDeviceMemory:
         # All-gather fabric handles
         all_fabric_handles = comm.allgather(my_fabric_handle.data)
         print(f"flashinfer.comm.mnnvl.McastDeviceMemory._alloc_mn_mcast_mem:  after comm.allgather(my_fabric_handle.data)")
-        return
         cuda.cuCtxSynchronize()
         print(f"flashinfer.comm.mnnvl.McastDeviceMemory._alloc_mn_mcast_mem:  after cuda.cuCtxSynchronize()")
 

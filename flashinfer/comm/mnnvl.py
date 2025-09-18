@@ -558,19 +558,14 @@ class McastDeviceMemory:
         is_multi_node: bool = True,
         group: dist.ProcessGroup = None,
     ):
-        print(f"flashinfer.comm.mnnvl.McastDeviceMemory.__init__:  before checkCudaErrors(cuda.cuDeviceGet(device_idx))")
         cu_device = checkCudaErrors(cuda.cuDeviceGet(device_idx))
-        print(f"flashinfer.comm.mnnvl.McastDeviceMemory.__init__:  after checkCudaErrors(cuda.cuDeviceGet(device_idx))")
 
         primary_ctx = checkCudaErrors(cuda.cuDevicePrimaryCtxRetain(cu_device))
-        print(f"flashinfer.comm.mnnvl.McastDeviceMemory.__init__:  after checkCudaErrors(cuda.cuDevicePrimaryCtxRetain(cu_device))")
         checkCudaErrors(cuda.cuCtxSetCurrent(primary_ctx))
-        print(f"flashinfer.comm.mnnvl.McastDeviceMemory.__init__:  after checkCudaErrors(cuda.cuCtxSetCurrent(primary_ctx))")
 
         # Set CUDA device
         # Check if cuda.cudart is available and import accordingly
         from flashinfer.utils import has_cuda_cudart
-        print(f"flashinfer.comm.mnnvl.McastDeviceMemory.__init__:  after from flashinfer.utils import has_cuda_cudart")
 
         if has_cuda_cudart():
             # cuda-python <= 12.9
@@ -578,10 +573,8 @@ class McastDeviceMemory:
         else:
             # cuda-python >= 13.0
             import cuda.bindings.runtime as cudart
-        print(f"flashinfer.comm.mnnvl.McastDeviceMemory.__init__:  after import cuda.bindings.runtime as cudart")
 
         checkCudaErrors(cudart.cudaSetDevice(device_idx))
-        print(f"flashinfer.comm.mnnvl.McastDeviceMemory.__init__:  after checkCudaErrors(cudart.cudaSetDevice(device_idx))")
 
         self.is_multi_node = is_multi_node
         self.device_idx = device_idx
@@ -614,7 +607,6 @@ class McastDeviceMemory:
                 device_idx,
             )
         )
-        print(f"flashinfer.comm.mnnvl.McastDeviceMemory.__init__:  after checkCudaErrors(cuda.cuDeviceGetAttribute(cuda.CUdevice_attribute.CU_DEVICE_ATTRIBUTE_MULTICAST_SUPPORTED, device_idx,))")
         if multicast_supported == 0:
             raise RuntimeError(
                 "[McastDeviceMemory] Device does not support multicasting."
@@ -622,7 +614,6 @@ class McastDeviceMemory:
 
         # Calculate signal pad offset with alignment (matching C++ exactly)
         self.signal_pad_offset = round_up(buf_size, self.SIGNAL_PAD_ALIGNMENT)
-        print(f"flashinfer.comm.mnnvl.McastDeviceMemory.__init__:  after round_up(buf_size, self.SIGNAL_PAD_ALIGNMENT)")
 
         logging.info(
             f"[McastDeviceMemory] Rank: {group_rank}, Group size: {group_size}, "
@@ -638,14 +629,12 @@ class McastDeviceMemory:
                     device_idx,
                 )
             )
-            print(f"flashinfer.comm.mnnvl.McastDeviceMemory.__init__:  after checkCudaErrors(cuda.cuDeviceGetAttribute(cuda.CUdevice_attribute.CU_DEVICE_ATTRIBUTE_HANDLE_TYPE_FABRIC_SUPPORTED, device_idx,))")
             if fabric_handle_supported == 0:
                 raise RuntimeError(
                     "[McastDeviceMemory] Device does not support fabric handle."
                 )
 
             self._alloc_mn_mcast_mem(buf_size)
-            print(f"flashinfer.comm.mnnvl.McastDeviceMemory.__init__:  after self._alloc_mn_mcast_mem(buf_size)")
         else:
             # For single-node NVLS, would need to implement _alloc_nvls_mcast_mem
             raise NotImplementedError("Single-node NVLS allocation not implemented yet")
@@ -771,7 +760,6 @@ class McastDeviceMemory:
         """Allocate multi-node multicast memory using MNNVL"""
 
         # Verify CUDA context
-        print(f"flashinfer.comm.mnnvl.McastDeviceMemory._alloc_mn_mcast_mem:  before checkCudaErrors(cuda.cuCtxGetDevice())")
         try:
             current_device = checkCudaErrors(cuda.cuCtxGetDevice())
 
@@ -782,13 +770,6 @@ class McastDeviceMemory:
         except Exception as e:
             print(f"Error checking CUDA context: {e}")
 
-        # Get MPI communicator
-        # comm = MpiComm()
-        # bbbb = [1,2,3]
-        # rrr = comm.Get_rank()
-        # print(f"rrr: {rrr}")
-
-        print(f"flashinfer.comm.mnnvl.McastDeviceMemory._alloc_mn_mcast_mem:  after MpiComm()")
 
         # Set up allocation properties
         handle_type = cuda.CUmemAllocationHandleType.CU_MEM_HANDLE_TYPE_FABRIC
@@ -811,7 +792,6 @@ class McastDeviceMemory:
                 cuda.CUmemAllocationGranularity_flags.CU_MEM_ALLOC_GRANULARITY_MINIMUM,
             )
         )
-        print(f"flashinfer.comm.mnnvl.McastDeviceMemory._alloc_mn_mcast_mem:  after checkCudaErrors(cuda.cuMemGetAllocationGranularity(allocation_prop, cuda.CUmemAllocationGranularity_flags.CU_MEM_ALLOC_GRANULARITY_MINIMUM,))")
 
         # mAllocationSize = roundUp(bufSize + kSIGNAL_PAD_SIZE, alloc_granularity);
         self.allocation_size = round_up(
@@ -831,7 +811,6 @@ class McastDeviceMemory:
                 cuda.CUmulticastGranularity_flags.CU_MULTICAST_GRANULARITY_RECOMMENDED,
             )
         )
-        print(f"flashinfer.comm.mnnvl.McastDeviceMemory._alloc_mn_mcast_mem:  after checkCudaErrors(cuda.cuMulticastGetGranularity(mc_prop, cuda.CUmulticastGranularity_flags.CU_MULTICAST_GRANULARITY_RECOMMENDED,))")
 
         self.allocation_size = round_up(self.allocation_size, mc_granularity)
 
@@ -851,8 +830,6 @@ class McastDeviceMemory:
                 0,
             )
         )
-        print(f"flashinfer.comm.mnnvl.McastDeviceMemory._alloc_mn_mcast_mem:  after checkCudaErrors(cuda.cuMemExportToShareableHandle(self.uc_handles[self.group_rank], cuda.CUmemAllocationHandleType.CU_MEM_HANDLE_TYPE_FABRIC, 0,))")
-        # this point didn't hang
 
         # All-gather fabric handles
         if not dist.is_initialized():
@@ -863,10 +840,7 @@ class McastDeviceMemory:
         dist.all_gather_object(
             all_fabric_handles, my_fabric_handle.data, group=self.group
         )
-        # all_fabric_handles = comm.allgather(my_fabric_handle.data)
-        print(f"flashinfer.comm.mnnvl.McastDeviceMemory._alloc_mn_mcast_mem:  after comm.allgather(my_fabric_handle.data)")
         cuda.cuCtxSynchronize()
-        print(f"flashinfer.comm.mnnvl.McastDeviceMemory._alloc_mn_mcast_mem:  after cuda.cuCtxSynchronize()")
 
         # Import remote handles
         for p in range(self.group_size):

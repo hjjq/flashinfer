@@ -640,13 +640,13 @@ class McastDeviceMemory:
                 raise RuntimeError(
                     "[McastDeviceMemory] Device does not support fabric handle."
                 )
-            return
 
             self._alloc_mn_mcast_mem(buf_size)
             print(f"flashinfer.comm.mnnvl.McastDeviceMemory.__init__:  after self._alloc_mn_mcast_mem(buf_size)")
         else:
             # For single-node NVLS, would need to implement _alloc_nvls_mcast_mem
             raise NotImplementedError("Single-node NVLS allocation not implemented yet")
+        return
 
         # Initialize signal pads
         self.signal_pads = [0] * self.group_size

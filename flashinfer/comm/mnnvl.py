@@ -577,7 +577,6 @@ class McastDeviceMemory:
             # cuda-python >= 13.0
             import cuda.bindings.runtime as cudart
         print(f"flashinfer.comm.mnnvl.McastDeviceMemory.__init__:  after import cuda.bindings.runtime as cudart")
-        return
 
         checkCudaErrors(cudart.cudaSetDevice(device_idx))
         print(f"flashinfer.comm.mnnvl.McastDeviceMemory.__init__:  after checkCudaErrors(cudart.cudaSetDevice(device_idx))")
@@ -604,6 +603,7 @@ class McastDeviceMemory:
         # Signal pad constants
         self.SIGNAL_PAD_ALIGNMENT = 16
         self.SIGNAL_PAD_SIZE = SIGNAL_PAD_SIZE
+        return
 
         # Check if device supports multicasting
         multicast_supported = checkCudaErrors(

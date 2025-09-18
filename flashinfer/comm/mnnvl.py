@@ -626,7 +626,6 @@ class McastDeviceMemory:
             f"mnNvlink: {is_multi_node}, device_idx: {device_idx}, "
             f"Signal pad offset: {self.signal_pad_offset}"
         )
-        return
 
         if self.is_multi_node:
             # Check if fabric handle is supported
@@ -636,12 +635,15 @@ class McastDeviceMemory:
                     device_idx,
                 )
             )
+            print(f"flashinfer.comm.mnnvl.McastDeviceMemory.__init__:  after checkCudaErrors(cuda.cuDeviceGetAttribute(cuda.CUdevice_attribute.CU_DEVICE_ATTRIBUTE_HANDLE_TYPE_FABRIC_SUPPORTED, device_idx,))")
             if fabric_handle_supported == 0:
                 raise RuntimeError(
                     "[McastDeviceMemory] Device does not support fabric handle."
                 )
+            return
 
             self._alloc_mn_mcast_mem(buf_size)
+            print(f"flashinfer.comm.mnnvl.McastDeviceMemory.__init__:  after self._alloc_mn_mcast_mem(buf_size)")
         else:
             # For single-node NVLS, would need to implement _alloc_nvls_mcast_mem
             raise NotImplementedError("Single-node NVLS allocation not implemented yet")

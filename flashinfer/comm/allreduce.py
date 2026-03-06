@@ -51,9 +51,15 @@ Example usage:
 from typing import Union, Literal, Optional, Tuple, List, cast, Any
 from .workspace_base import AllReduceFusionWorkspace
 
+import logging
 import torch
 
 from flashinfer.api_logging import flashinfer_api
+
+logger = logging.getLogger("flashinfer.comm.allreduce")
+
+# Global call counter for tracking invocations across the process lifetime
+_allreduce_fusion_call_count = 0
 
 from .trtllm_ar import trtllm_allreduce_fusion
 from .trtllm_ar import trtllm_create_ipc_workspace_for_all_reduce_fusion
@@ -559,6 +565,23 @@ def allreduce_fusion(
         ...     scale_factor=scale_tensor
         ... )
     """
+    global _allreduce_fusion_call_count
+    _allreduce_fusion_call_count += 1
+    call_id = _allreduce_fusion_call_count
+
+    _pattern_names = {0: "kAllReduce", 1: "kARResidualRMSNorm", 2: "kARResidualRMSNormFP8Quant",
+                      3: "kARResidualRMSNormFP4Quant", 4: "kARResidualRMSNormOutFP8Quant",
+                      5: "kARResidualRMSNormOutFP4Quant"}
+
+    logger.info(
+        "[allreduce_fusion #%d] backend=%s, pattern=%s(%d), shape=%s, dtype=%s, "
+        "world_size=%d, rank=%d, pdl=%s, use_oneshot=%s",
+        call_id, workspace.backend, _pattern_names.get(pattern, "?"), pattern,
+        list(input.shape), input.dtype,
+        workspace.world_size, workspace.rank,
+        launch_with_pdl, use_oneshot,
+    )
+
     # Dispatch based on workspace type
     if isinstance(workspace, TRTLLMAllReduceFusionWorkspace):
         # TensorRT-LLM backend implementation

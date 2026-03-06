@@ -6,9 +6,21 @@ MNNVL (Multi-Node NVLink) communication operations for FlashInfer.
 import functools
 import math
 import logging
+import os
 from types import SimpleNamespace
 from typing import Optional, Tuple
 from enum import Enum
+
+logger = logging.getLogger("flashinfer.comm.mnnvl_ar")
+
+# Module-level call counters for tracking at this layer
+_mnnvl_allreduce_call_count = 0
+_mnnvl_fused_ar_rmsnorm_call_count = 0
+
+# Set FLASHINFER_AR_DEBUG=1 to enable sync-before-read of buffer_flags
+# (gives accurate GPU-side state but serializes execution — debug only!)
+# Set FLASHINFER_AR_DEBUG=2 to also sync AFTER kernel enqueue (will hang at the deadlocking call)
+_AR_DEBUG_LEVEL = int(os.environ.get("FLASHINFER_AR_DEBUG", "0"))
 
 import torch
 from typing_extensions import deprecated
@@ -19,6 +31,27 @@ from ..jit import gen_trtllm_mnnvl_comm_module
 from ..utils import register_custom_op
 from .mnnvl import McastGPUBuffer, CommBackend, MPIBackend
 from .workspace_base import AllReduceFusionWorkspace
+
+
+def _log_buffer_flags(flags: torch.Tensor, prefix: str, sync: bool = False):
+    """Log buffer_flags contents. If sync=True, synchronize CUDA first to get accurate GPU state."""
+    if sync:
+        torch.cuda.synchronize()
+    logger.info(
+        "%s buffer_flags=[cur_idx=%d, dirty_idx=%d, bytes_per_buf=%d, "
+        "dirty_num_stages=%d, bytes_to_clear=[%d,%d,%d,%d], access_count=%d]%s",
+        prefix,
+        flags[0].item(), flags[1].item(), flags[2].item(), flags[3].item(),
+        flags[4].item(), flags[5].item(), flags[6].item(), flags[7].item(),
+        flags[8].item(),
+        " (synced)" if sync else " (host-side, may be stale)",
+    )
+
+
+def _get_cuda_stream_ptr() -> int:
+    """Get the raw CUDA stream pointer for the current stream."""
+    stream = torch.cuda.current_stream()
+    return stream.cuda_stream
 
 
 def mpi_barrier():
@@ -173,6 +206,24 @@ class MNNVLAllReduceFusionWorkspace(AllReduceFusionWorkspace):
         self.uc_ptrs_dev = self.mcast_buffer_handle.get_buffer_ptrs_dev()
         self.uc_ptr_local = self.mcast_buffer_handle.get_unicast_ptr(self.rank)
         self.mc_ptr = self.mcast_buffer_handle.get_multicast_ptr()
+
+        logger.info(
+            "[MNNVLWorkspace INIT] rank=%d, tp_size=%d, "
+            "buffer_size_bytes=%d, workspace_size_bytes=%d, "
+            "mc_ptr=0x%x, uc_ptrs_dev=0x%x, uc_ptr_local=0x%x, "
+            "buffer_flags_ptr=0x%x, "
+            "initial_flags=[cur_idx=%d, dirty_idx=%d, bytes_per_buf=%d, "
+            "dirty_num_stages=%d, bytes_to_clear=[%d,%d,%d,%d], access_count=%d]",
+            self.rank, self.tp_size,
+            self.buffer_size_bytes, self.workspace_size_bytes,
+            self.mc_ptr, self.uc_ptrs_dev, self.uc_ptr_local,
+            self.buffer_flags.data_ptr(),
+            self.buffer_flags[0].item(), self.buffer_flags[1].item(),
+            self.buffer_flags[2].item(), self.buffer_flags[3].item(),
+            self.buffer_flags[4].item(), self.buffer_flags[5].item(),
+            self.buffer_flags[6].item(), self.buffer_flags[7].item(),
+            self.buffer_flags[8].item(),
+        )
 
     @functools.cache
     def is_buffer_size_sufficient(
@@ -365,6 +416,10 @@ def trtllm_mnnvl_allreduce(
             f"The output tensor must be 2D, got {len(output.shape)}D. The shape is {output.shape}."
         )
 
+    global _mnnvl_allreduce_call_count
+    _mnnvl_allreduce_call_count += 1
+    call_id = _mnnvl_allreduce_call_count
+
     module = get_trtllm_mnnvl_comm_module()
 
     if strategy == MNNVLAllreduceFusionStrategy.AUTO:
@@ -372,12 +427,36 @@ def trtllm_mnnvl_allreduce(
             workspace.tp_size, input.shape[0], input.shape[1], input.dtype
         )
 
+    use_oneshot = strategy == MNNVLAllreduceFusionStrategy.ONESHOT
+
     if not workspace.is_buffer_size_sufficient(
         workspace.tp_size, input.shape[0], input.shape[1], input.dtype, strategy
     ):
         raise ValueError(
             f"The buffer size in the given workspace is insufficient for the given problem size. Buffer: {workspace.buffer_size_bytes} bytes, Required: {workspace.get_required_buffer_size_bytes(workspace.tp_size, input.shape[0], input.shape[1], input.dtype, strategy)} bytes."
         )
+
+    logger.info(
+        "[mnnvl_allreduce #%d] strategy=%s, shape=%s, dtype=%s, tp_size=%d, rank=%d, "
+        "pdl=%s, oneshot=%s, stream=0x%x",
+        call_id, strategy.name, list(input.shape), input.dtype,
+        workspace.tp_size, workspace.rank, launch_with_pdl,
+        use_oneshot, _get_cuda_stream_ptr(),
+    )
+    logger.info(
+        "[mnnvl_allreduce #%d] ptrs: input=0x%x, output=0x%x, "
+        "mc=0x%x, uc_dev=0x%x, uc_local=0x%x, flags=0x%x, "
+        "buf_size=%d",
+        call_id,
+        input.data_ptr(), output.data_ptr(),
+        workspace.mc_ptr, workspace.uc_ptrs_dev, workspace.uc_ptr_local,
+        workspace.buffer_flags.data_ptr(), workspace.buffer_size_bytes,
+    )
+    _log_buffer_flags(
+        workspace.buffer_flags,
+        f"[mnnvl_allreduce #{call_id}] PRE-CALL",
+        sync=(_AR_DEBUG_LEVEL >= 1),
+    )
 
     module.trtllm_mnnvl_allreduce_fusion(
         input,
@@ -389,12 +468,23 @@ def trtllm_mnnvl_allreduce(
         workspace.rank,
         False,  # No RMSNorm Fusion
         launch_with_pdl,
-        strategy == MNNVLAllreduceFusionStrategy.ONESHOT,
+        use_oneshot,
         output,
         None,
         None,
         None,
         None,
+    )
+
+    logger.info("[mnnvl_allreduce #%d] kernel enqueued", call_id)
+    if _AR_DEBUG_LEVEL >= 2:
+        logger.info("[mnnvl_allreduce #%d] SYNC-AFTER: calling torch.cuda.synchronize()...", call_id)
+        torch.cuda.synchronize()
+        logger.info("[mnnvl_allreduce #%d] SYNC-AFTER: completed", call_id)
+    _log_buffer_flags(
+        workspace.buffer_flags,
+        f"[mnnvl_allreduce #{call_id}] POST-CALL",
+        sync=(_AR_DEBUG_LEVEL >= 1),
     )
 
     return output
@@ -461,18 +551,49 @@ def trtllm_mnnvl_fused_allreduce_add_rmsnorm(
             f"The residual output tensor must be 2D, got {len(residual_out.shape)}D. The shape is {residual_out.shape}."
         )
 
+    global _mnnvl_fused_ar_rmsnorm_call_count
+    _mnnvl_fused_ar_rmsnorm_call_count += 1
+    call_id = _mnnvl_fused_ar_rmsnorm_call_count
+
     module = get_trtllm_mnnvl_comm_module()
 
     if strategy == MNNVLAllreduceFusionStrategy.AUTO:
         strategy = MNNVLAllreduceFusionStrategy.select_strategy(
             workspace.tp_size, input.shape[0], input.shape[1], input.dtype
         )
+
+    use_oneshot = strategy == MNNVLAllreduceFusionStrategy.ONESHOT
+
     if not workspace.is_buffer_size_sufficient(
         workspace.tp_size, input.shape[0], input.shape[1], input.dtype, strategy
     ):
         raise ValueError(
             f"The buffer size in the given workspace is insufficient for the given problem size. Buffer: {workspace.buffer_size_bytes} bytes, Required: {workspace.get_required_buffer_size_bytes(workspace.tp_size, input.shape[0], input.shape[1], input.dtype, strategy)} bytes."
         )
+
+    logger.info(
+        "[mnnvl_fused_ar_rmsnorm #%d] strategy=%s, shape=%s, dtype=%s, "
+        "tp_size=%d, rank=%d, eps=%s, pdl=%s, oneshot=%s, stream=0x%x",
+        call_id, strategy.name, list(input.shape), input.dtype,
+        workspace.tp_size, workspace.rank, epsilon,
+        launch_with_pdl, use_oneshot, _get_cuda_stream_ptr(),
+    )
+    logger.info(
+        "[mnnvl_fused_ar_rmsnorm #%d] ptrs: input=0x%x, output=0x%x, "
+        "res_in=0x%x, res_out=0x%x, gamma=0x%x, "
+        "mc=0x%x, uc_dev=0x%x, uc_local=0x%x, flags=0x%x, "
+        "buf_size=%d",
+        call_id,
+        input.data_ptr(), output.data_ptr(),
+        residual_in.data_ptr(), residual_out.data_ptr(), gamma.data_ptr(),
+        workspace.mc_ptr, workspace.uc_ptrs_dev, workspace.uc_ptr_local,
+        workspace.buffer_flags.data_ptr(), workspace.buffer_size_bytes,
+    )
+    _log_buffer_flags(
+        workspace.buffer_flags,
+        f"[mnnvl_fused_ar_rmsnorm #{call_id}] PRE-CALL",
+        sync=(_AR_DEBUG_LEVEL >= 1),
+    )
 
     module.trtllm_mnnvl_allreduce_fusion(
         input,
@@ -484,13 +605,28 @@ def trtllm_mnnvl_fused_allreduce_add_rmsnorm(
         workspace.rank,
         True,  # RMSNorm Fusion
         launch_with_pdl,
-        strategy == MNNVLAllreduceFusionStrategy.ONESHOT,
+        use_oneshot,
         output,
         residual_out,
         residual_in,
         gamma,
         epsilon,
     )
+
+    logger.info("[mnnvl_fused_ar_rmsnorm #%d] kernel enqueued", call_id)
+    if _AR_DEBUG_LEVEL >= 2:
+        logger.info(
+            "[mnnvl_fused_ar_rmsnorm #%d] SYNC-AFTER: calling torch.cuda.synchronize()...",
+            call_id,
+        )
+        torch.cuda.synchronize()
+        logger.info("[mnnvl_fused_ar_rmsnorm #%d] SYNC-AFTER: completed", call_id)
+    _log_buffer_flags(
+        workspace.buffer_flags,
+        f"[mnnvl_fused_ar_rmsnorm #{call_id}] POST-CALL",
+        sync=(_AR_DEBUG_LEVEL >= 1),
+    )
+
     return output, residual_out
 
 
